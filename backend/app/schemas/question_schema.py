@@ -18,5 +18,7 @@ class SourceInfo(BaseModel):
 class QuestionResponse(BaseModel):
     question: str
     retrieved_chunks: List[RetrievedChunk]
+    mode: str
+    routing_label: str
     answer: str
     sources: List[SourceInfo]

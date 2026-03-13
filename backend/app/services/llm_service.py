@@ -41,3 +41,21 @@ def generate_answer(question: str, retrieved_chunks: list[dict]) -> str:
     )
 
     return response.text
+
+def generate_direct_answer(question: str) -> str:
+    prompt = f"""
+    You are a helpful AI assistant.
+
+    Answer the user's question clearly and accurately.
+    If you are unsure, say so briefly instead of making things up.
+
+    Question:
+    {question}
+    """
+
+    response = client.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt
+    )
+
+    return response.text

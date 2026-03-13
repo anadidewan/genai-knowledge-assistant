@@ -1,31 +1,51 @@
 from fastapi import APIRouter , HTTPException
 from app.schemas.question_schema import QuestionRequest, QuestionResponse
 from app.services.retrieval_service import hybrid_retrieve
-from app.services.llm_service import generate_answer
+from app.services.llm_service import generate_answer, generate_direct_answer
+from app.services.router_service import should_use_retrieval
 
 
 router = APIRouter(prefix="/query", tags=["query"])
 
 
 @router.post("/ask", response_model=QuestionResponse)
-async def ask_question(request: QuestionRequest):
+async def ask_question(payload: QuestionRequest):
     try:
-        retrieved_chunks = hybrid_retrieve(request.question, top_k=5)
-        answer = generate_answer(request.question, retrieved_chunks)
+        routing = should_use_retrieval(payload.question)
 
-        sources = [
-            {
-            "document_name" : chunk["document_name"],
-            "chunk_id" : chunk["chunk_id"]
+        if routing["decision"] == "retrieve":
+            retrieved_chunks = hybrid_retrieve(payload.question, top_k=5)
+            answer = generate_answer(payload.question, retrieved_chunks)
+
+            sources = [
+                {
+                    "document_name": chunk["document_name"],
+                    "chunk_id": chunk["chunk_id"]
+                }
+                for chunk in retrieved_chunks
+            ]
+
+            return {
+                "question": payload.question,
+                "mode": "retrieved",
+                "routing_label": routing["raw_label"],
+                "answer": answer,
+                "retrieved_chunks": retrieved_chunks,
+                "sources": sources
             }
-            for chunk in retrieved_chunks[:3]
-        ]
-        return QuestionResponse(
-            question=request.question,
-            retrieved_chunks=retrieved_chunks,
-            answer=answer,
-            sources=sources
-        )
+
+        else:
+            answer = generate_direct_answer(payload.question)
+
+            return {
+                "question": payload.question,
+                "mode": "direct",
+                "routing_label": routing["raw_label"],
+                "answer": answer,
+                "retrieved_chunks": [],
+                "sources": []
+            }
+
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

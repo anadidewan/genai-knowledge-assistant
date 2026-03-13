@@ -15,6 +15,7 @@ class Settings(BaseModel):
     MODEL: str = "all-MiniLM-L6-v2"
     GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
     GEMINI_MODEL: str | None = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+    plenty_available: int = 0
 
 
 settings = Settings()
