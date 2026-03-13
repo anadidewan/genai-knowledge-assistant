@@ -12,6 +12,12 @@ def create_embeddings(chunks: list[str]) -> np.ndarray:
 
 
 def build_faiss_index(embeddings: np.ndarray) -> faiss.IndexFlatL2:
+    if embeddings is None or len(embeddings) == 0:
+        raise ValueError("Embeddings are empty. Cannot build FAISS index.")
+
+    if len(embeddings.shape) != 2:
+        raise ValueError(f"Embeddings must be 2D, got shape: {embeddings.shape}")
+
     dimension = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimension)
     index.add(embeddings)
