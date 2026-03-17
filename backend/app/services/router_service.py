@@ -5,78 +5,105 @@ client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
 
 def should_use_retrieval(question: str) -> dict:
-    if settings.plenty_available == 0:
-        q = question.lower()
+    q = question.lower().strip()
 
-        retrieval_triggers = [
-            "uploaded document",
-            "uploaded documents",
-            "uploaded pdf",
-            "pdf",
-            "paper",
-            "report",
-            "file",
-            "document",
-            "documents",
-            "according to the document",
-            "according to the paper",
-            "from the document",
-            "from the paper",
-            "in the document",
-            "in the paper",
-            "summarize the document",
-            "summarize the paper",
-            "what does the document say",
-            "what does the paper say",
-        ]
+    critique_triggers = [
+        "how can we improve",
+        "how to improve",
+        "make this better",
+        "make it better",
+        "improve this document",
+        "improve the document",
+        "how can we make this document better",
+        "how can i make this document better",
+        "is this good",
+        "is this well written",
+        "how can i rewrite",
+        "rewrite this better",
+        "make it clearer",
+        "make it stronger",
+        "make this clearer",
+        "what should i improve",
+        "how can i improve this",
+        "how can we improve this document",
+    ]
 
-        for phrase in retrieval_triggers:
-            if phrase in q:
-                return {
-                    "decision": "retrieve",
-                    "raw_label": f"matched rule: {phrase}"
-                }
+    for phrase in critique_triggers:
+        if phrase in q:
+            return {
+                "decision": "critique",
+                "raw_label": f"matched critique rule: {phrase}"
+            }
 
-        return {
-            "decision": "direct",
-            "raw_label": "no retrieval trigger matched"
-        }
-    else:
-        prompt = f"""
-    You are a routing assistant for a RAG system.
+    retrieval_triggers = [
+        "uploaded document",
+        "uploaded documents",
+        "uploaded pdf",
+        "pdf",
+        "paper",
+        "report",
+        "file",
+        "document",
+        "documents",
+        "according to the document",
+        "according to the paper",
+        "from the document",
+        "from the paper",
+        "in the document",
+        "in the paper",
+        "summarize the document",
+        "summarize the paper",
+        "what does the document say",
+        "what does the paper say",
+    ]
 
-    Your job is to decide whether a user question requires retrieving information from uploaded documents.
+    for phrase in retrieval_triggers:
+        if phrase in q:
+            return {
+                "decision": "retrieve",
+                "raw_label": f"matched retrieval rule: {phrase}"
+            }
 
-    Return ONLY one of these two labels:
-    - RETRIEVE
-    - DIRECT
+    return {
+        "decision": "direct",
+        "raw_label": "no retrieval trigger matched"
+    }
+    # else:
+    #     prompt = f"""
+    # You are a routing assistant for a RAG system.
 
-    Use RETRIEVE if:
-    - the user is asking about the uploaded document(s)
-    - the answer likely depends on document-specific content
-    - the user asks to summarize, extract, explain, compare, or locate information from uploaded files
+    # Your job is to decide whether a user question requires retrieving information from uploaded documents.
 
-    Use DIRECT if:
-    - the question is general knowledge
-    - the answer does not require any uploaded document context
+    # Return ONLY one of these two labels:
+    # - RETRIEVE
+    # - DIRECT
 
-    Question:
-    {question}
-    """
+    # Use RETRIEVE if:
+    # - the user is asking about the uploaded document(s)
+    # - the answer likely depends on document-specific content
+    # - the user asks to summarize, extract, explain, compare, or locate information from uploaded files
 
-        response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=prompt
-        )
+    # Use DIRECT if:
+    # - the question is general knowledge
+    # - the answer does not require any uploaded document context
 
-        label = response.text.strip().upper()
+    # Question:
+    # {question}
+    # """
 
-        if "RETRIEVE" in label:
-            decision = "RETRIEVE"
-        else:
-            decision = "DIRECT"
+    #     response = client.models.generate_content(
+    #         model=settings.GEMINI_MODEL,
+    #         contents=prompt
+    #     )
 
-        return {
-            "decision": decision,
-            "raw_label": label
-        }
+    #     label = response.text.strip().upper()
+
+    #     if "RETRIEVE" in label:
+    #         decision = "RETRIEVE"
+    #     else:
+    #         decision = "DIRECT"
+
+    #     return {
+    #         "decision": decision,
+    #         "raw_label": label
+    #     }

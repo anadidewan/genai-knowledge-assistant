@@ -3,6 +3,7 @@ from app.utils.pdf_utils import extract_text_from_pdf
 from app.utils.text_utils import chunk_text
 from app.utils.vector_utils import create_embeddings, build_faiss_index
 from app.store.document_store import store
+from app.services.graph_service import build_graph_data
 
 
 
@@ -27,12 +28,13 @@ def process_uploaded_document(file):
             "document_name": file.filename,
             "chunk_id": i
         })
-    
 
     store.stored_chunks.extend(chunk_records)
     all_chunk_texts = [record["text"] for record in store.stored_chunks]
     embeddings = create_embeddings(all_chunk_texts)
     store.stored_index = build_faiss_index(embeddings)
+    # new_graph_records = build_graph_data(chunk_records[:30])
+    # store.graph_data.extend(new_graph_records)
 
     store.save_to_disk()
 

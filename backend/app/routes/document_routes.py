@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.services.document_service import process_uploaded_document
+from app.store.document_store import store
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -15,3 +16,10 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported right now")
 
     return process_uploaded_document(file)
+
+@router.get("/graph")
+def get_graph_data():
+    return {
+        "graph_records_count": len(store.graph_data),
+        "graph_data": store.graph_data[:5]
+    }
