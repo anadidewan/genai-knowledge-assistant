@@ -24,7 +24,7 @@ class Settings(BaseModel):
  
     # Retrieval confidence threshold (0.0 - 1.0)
     RETRIEVAL_CONFIDENCE_THRESHOLD: float = float(
-        os.getenv("RETRIEVAL_CONFIDENCE_THRESHOLD", "0.25")
+        os.getenv("RETRIEVAL_CONFIDENCE_THRESHOLD", "0.6")
     )
  
 

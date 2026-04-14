@@ -41,8 +41,8 @@ def process_uploaded_document(file):
     embeddings = create_embeddings(all_chunk_texts)
     logger.info("Index rebuilt | file=%s | total_chunks=%d", file.filename, len(store.stored_chunks))
     store.stored_index = build_faiss_index(embeddings)
-    # new_graph_records = build_graph_data(chunk_records[:30])
-    # store.graph_data.extend(new_graph_records)
+    new_graph_records = build_graph_data(chunk_records[:30])
+    store.graph_data.extend(new_graph_records)
 
     store.save_to_disk()
     logger.info("Store persisted to disk | file=%s", file.filename)

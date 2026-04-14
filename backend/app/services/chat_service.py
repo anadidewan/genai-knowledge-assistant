@@ -4,26 +4,46 @@ from app.store.chat_store import (
     save_message,
     get_recent_messages,
 )
-from app.services.retrieval_service import hybrid_retrieve
-from app.services.llm_service import generate_answer, generate_direct_answer, generate_critique_answer
+from app.services.retrieval_service import hybrid_retrieve, graph_expand, get_graph_context
+from app.services.llm_service import generate_answer, generate_direct_answer, generate_critique_answer, _call_gemini
 from app.services.router_service import should_use_retrieval
 from app.config import settings
 import time
 from app.utils.custom_logger import get_logger
 logger = get_logger(__name__)
 
+def rewrite_query(history: list[dict], current_message: str) -> str:
+    if not history:
+        return current_message
 
-def build_retrieval_query(history: list[dict], current_message: str) -> str:
+    recent = history[-4:]
+    history_text = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
 
-    previous_user_messages = [
-        msg["content"] for msg in history if msg["role"] == "user"
-    ]
+    prompt = f"""Rewrite the user's latest message as a standalone question 
+that makes sense without conversation history. 
+If it's already standalone, return it unchanged.
+Return ONLY the rewritten question, nothing else.
 
-    if previous_user_messages:
-        last_user_message = previous_user_messages[-1]
-        return f"{last_user_message} {current_message}"
+Conversation:
+{history_text}
 
-    return current_message
+Latest message: {current_message}
+
+Standalone question:"""
+
+    return _call_gemini(prompt, caller="rewrite_query").strip()
+
+# def build_retrieval_query(history: list[dict], current_message: str) -> str:
+
+#     previous_user_messages = [
+#         msg["content"] for msg in history if msg["role"] == "user"
+#     ]
+
+#     if previous_user_messages:
+#         last_user_message = previous_user_messages[-1]
+#         return f"{last_user_message} {current_message}"
+
+#     return current_message
 
 
 def process_chat_message(session_id: str, user_message: str) -> dict:
@@ -32,21 +52,22 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
 
     # Load recent history
     history = get_recent_messages(session_id, limit=6)
-
     # Build retrieval query
-    retrieval_query = build_retrieval_query(history[:-1], user_message)
+    retrieval_query = rewrite_query(history, user_message)
     logger.debug("Retrieval query built | session=%s | query=%.120s", session_id, retrieval_query)
 
     
 
 
     try:
-        routing = should_use_retrieval(retrieval_query)
+        routing = should_use_retrieval(user_message)
         logger.info("Routing decision | session=%s | decision=%s | label=%s", session_id, routing["decision"], routing["raw_label"])
 
 
         if routing["decision"] in ("retrieve", "critique"):
             retrieved_chunks = hybrid_retrieve(retrieval_query, top_k=5)
+            retrieved_chunks = graph_expand(retrieved_chunks, top_k=3)
+            graph_context = get_graph_context(retrieved_chunks)
             confidence = (
                 retrieved_chunks[0].get("retrieval_confidence", 0.0)
                 if retrieved_chunks
@@ -58,7 +79,8 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
                 sources = []
                 retrieved_chunks = []
             elif routing["decision"] == "critique":
-                answer = generate_critique_answer(user_message, retrieved_chunks, history)
+                answer = generate_critique_answer(user_message, retrieved_chunks, history, graph_context)
+
                 mode = "retrieved"
                 sources = [
                     {
@@ -68,7 +90,8 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
                     for chunk in retrieved_chunks
                 ]
             else:
-                answer = generate_answer(user_message, retrieved_chunks, history)
+                answer = generate_answer(user_message, retrieved_chunks, history, graph_context)
+
                 mode = "retrieved"
                 sources = [
                     {

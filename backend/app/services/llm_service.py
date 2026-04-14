@@ -20,7 +20,7 @@ def format_history(history):
 
  
  
-@retry_with_backoff(max_retries=3, base_delay=1.0, backoff_factor=2.0)
+@retry_with_backoff(max_retries=settings.LLM_MAX_RETRIES, base_delay=settings.LLM_BASE_DELAY,max_delay=settings.LLM_MAX_DELAY ,backoff_factor=settings.LLM_BACKOFF_FACTOR)
 def _call_gemini(prompt: str, caller: str = "unknown") -> str:
     logger.info("LLM call start | caller=%s | prompt_len=%d", caller, len(prompt))
     start = time.time()
@@ -35,7 +35,7 @@ def _call_gemini(prompt: str, caller: str = "unknown") -> str:
         logger.info("LLM call complete | caller=%s | response_len=%d | elapsed=%dms", caller, elapsed, len(text))
     return text
 
-def generate_critique_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
+def generate_critique_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None, graph_context: str = "") -> str:
     history_text = format_history(history)
 
     context_parts = []
@@ -48,7 +48,12 @@ def generate_critique_answer(question: str, retrieved_chunks: list[dict], histor
         )
 
     context = "\n\n".join(context_parts)
-
+    graph_section = ""
+    if graph_context:
+        graph_section = f"""
+    Known entity relationships:
+    {graph_context}
+    """
 
     prompt = f"""
     You are a helpful AI assistant reviewing a document.
@@ -67,14 +72,14 @@ def generate_critique_answer(question: str, retrieved_chunks: list[dict], histor
 
     Document context:
     {context}
-
+    {graph_section}
     User request:
     {question}
     """
     
     return _call_gemini(prompt, caller="generate_critique_answer")
 
-def generate_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
+def generate_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None, graph_context: str = "") -> str:
 
     history_text = format_history(history)
     if not retrieved_chunks:
@@ -90,8 +95,13 @@ def generate_answer(question: str, retrieved_chunks: list[dict], history: list[d
         )
 
     context = "\n\n".join(context_parts)
-
-
+    
+    graph_section = ""
+    if graph_context:
+        graph_section = f"""
+    Known entity relationships (use these as supporting facts):
+    {graph_context}
+    """
     prompt = f"""
     You are a helpful AI assistant that answers questions using ONLY the provided document context.
 
@@ -104,7 +114,7 @@ def generate_answer(question: str, retrieved_chunks: list[dict], history: list[d
     {history_text}
     Context:
     {context}
-
+    {graph_section}
     Question:
     {question}
     """
@@ -125,4 +135,3 @@ def generate_direct_answer(question: str, history: List[dict] = None) -> str:
     """
 
     return _call_gemini(prompt, caller="generate_direct_answer")
-

@@ -109,6 +109,104 @@ def compute_retrieval_confidence(results: List[Dict[str, Any]]) -> float:
     confidence = 0.6 * top_score + 0.4 * gap
     return round(min(max(confidence, 0.0), 1.0), 4)
 
+def graph_expand(retrieved_chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
+
+    if not store.graph_data:
+        return retrieved_chunks
+
+    # Collect chunk IDs we already have
+    existing_keys = {
+        (c["document_name"], c["chunk_id"]) for c in retrieved_chunks
+    }
+
+    # Step 1: Find all entities mentioned in retrieved chunks
+    matched_entities = set()
+    for chunk in retrieved_chunks:
+        for record in store.graph_data:
+            if record["document_name"] == chunk["document_name"] and record["chunk_id"] == chunk["chunk_id"]:
+                matched_entities.update(e.lower() for e in record["entities"])
+
+    if not matched_entities:
+        logger.debug("Graph expand: no entities found in retrieved chunks")
+        return retrieved_chunks
+
+    # Step 2: Find other chunks that contain those entities
+    candidate_chunks = []
+    for record in store.graph_data:
+        key = (record["document_name"], record["chunk_id"])
+        if key in existing_keys:
+            continue
+
+        record_entities = {e.lower() for e in record["entities"]}
+        overlap = matched_entities.intersection(record_entities)
+
+        if overlap:
+            candidate_chunks.append({
+                "document_name": record["document_name"],
+                "chunk_id": record["chunk_id"],
+                "overlap_count": len(overlap),
+                "matched_entities": list(overlap),
+            })
+
+    # Rank by how many shared entities
+    candidate_chunks.sort(key=lambda x: x["overlap_count"], reverse=True)
+
+    # Step 3: Look up the actual chunk text and append
+    expanded = list(retrieved_chunks)
+    for candidate in candidate_chunks[:top_k]:
+        for stored_chunk in store.stored_chunks:
+            if (stored_chunk["document_name"] == candidate["document_name"]
+                    and stored_chunk["chunk_id"] == candidate["chunk_id"]):
+                expanded.append({
+                    "chunk_id": stored_chunk["chunk_id"],
+                    "document_name": stored_chunk["document_name"],
+                    "text": stored_chunk["text"],
+                    "semantic_score": 0.0,
+                    "keyword_score": 0.0,
+                    "hybrid_score": 0.0,
+                    "retrieval_confidence": 0.0,
+                    "graph_expanded": True,
+                    "matched_entities": candidate["matched_entities"],
+                })
+                break
+
+    logger.info(
+        "Graph expand: %d entities matched, %d new chunks added",
+        len(matched_entities),
+        len(expanded) - len(retrieved_chunks),
+    )
+    return expanded
+
+def get_graph_context(retrieved_chunks: List[Dict[str, Any]], max_triplets: int = 15) -> str:
+    """
+    Build a text block of entity-relationship triplets relevant to
+    the retrieved chunks, for injection into the LLM prompt.
+    """
+    if not store.graph_data:
+        return ""
+
+    chunk_keys = {
+        (c["document_name"], c["chunk_id"]) for c in retrieved_chunks
+    }
+
+    triplets = []
+    seen = set()
+
+    for record in store.graph_data:
+        if (record["document_name"], record["chunk_id"]) not in chunk_keys:
+            continue
+
+        for rel in record.get("relationships", []):
+            triplet_key = (rel["source"].lower(), rel["relation"], rel["target"].lower())
+            if triplet_key not in seen:
+                seen.add(triplet_key)
+                triplets.append(f'{rel["source"]} —[{rel["relation"]}]→ {rel["target"]}')
+
+    if not triplets:
+        return ""
+
+    logger.debug("Graph context: %d triplets for prompt", len(triplets[:max_triplets]))
+    return "\n".join(triplets[:max_triplets])
 
 def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
     semantic_results = semantic_retrieve(question, top_k=top_k * 2)
