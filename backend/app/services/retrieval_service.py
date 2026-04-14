@@ -4,7 +4,9 @@ from app.utils.vector_utils import embed_query
 from app.store.document_store import store
 from app.config import settings
 
-CONFIDENCE_THRESHOLD = settings.RETRIEVAL_CONFIDENCE_THRESHOLD
+import time
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 
 
 def tokenize(text: str) -> set:
@@ -23,6 +25,7 @@ def keyword_score(query: str, chunk_text: str) -> float:
 
 
 def semantic_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    logger.debug("Semantic retrieve | query=%.80s | top_k=%d", question, top_k)
     if store.stored_index is None or not store.stored_chunks:
         raise ValueError("No documents uploaded yet")
 
@@ -43,9 +46,13 @@ def semantic_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             "text": chunk["text"],
             "semantic_score": float(distances[0][rank]),
         })
+    logger.debug("Semantic retrieve returned %d results", len(results))
+
     return results
 
 def keyword_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    logger.debug("Keyword retrieve | query=%.80s | top_k=%d", question, top_k)
+
     if not store.stored_chunks:
         raise ValueError("No documents uploaded yet")
 
@@ -63,6 +70,7 @@ def keyword_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             })
 
     scored_chunks.sort(key=lambda x: x["keyword_score"], reverse=True)
+    logger.debug("Keyword retrieve: %d chunks with score > 0", len(scored_chunks))
     return scored_chunks[:top_k]
 
 

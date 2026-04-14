@@ -2,12 +2,17 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from app.config import settings
-
+import time
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 model = SentenceTransformer(settings.MODEL)
 
 
 def create_embeddings(chunks: list[str]) -> np.ndarray:
+    start = time.time()
     embeddings = model.encode(chunks)
+    elapsed = round((time.time() - start) * 1000)
+    logger.info("Embeddings created | chunks=%d | dim=%d | elapsed=%dms", len(chunks), embeddings.shape[1], elapsed)
     return np.array(embeddings, dtype="float32")
 
 
@@ -21,6 +26,7 @@ def build_faiss_index(embeddings: np.ndarray) -> faiss.IndexFlatL2:
     dimension = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimension)
     index.add(embeddings)
+    logger.info("FAISS index built | vectors=%d | dim=%d", embeddings.shape[0], dimension)
     return index
 
 def embed_query(query: str) -> np.ndarray:

@@ -2,6 +2,9 @@ from google import genai
 from app.config import settings
 from app.utils.retry_utils import retry_with_backoff
 from typing import List
+import time
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
@@ -18,12 +21,19 @@ def format_history(history):
  
  
 @retry_with_backoff(max_retries=3, base_delay=1.0, backoff_factor=2.0)
-def _call_gemini(prompt: str) -> str:
-    """Centralized Gemini call with retry logic."""
+def _call_gemini(prompt: str, caller: str = "unknown") -> str:
+    logger.info("LLM call start | caller=%s | prompt_len=%d", caller, len(prompt))
+    start = time.time()
     response = client.models.generate_content(
         model=settings.GEMINI_MODEL, contents=prompt
     )
-    return response.text
+    elapsed = round((time.time() - start) * 1000)
+    text = response.text or ""
+    if not text.strip():
+        logger.warning("LLM returned empty response | caller=%s | elapsed=%dms", caller, elapsed)
+    else:
+        logger.info("LLM call complete | caller=%s | response_len=%d | elapsed=%dms", caller, elapsed, len(text))
+    return text
 
 def generate_critique_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
     history_text = format_history(history)
@@ -62,7 +72,7 @@ def generate_critique_answer(question: str, retrieved_chunks: list[dict], histor
     {question}
     """
     
-    return _call_gemini(prompt)
+    return _call_gemini(prompt, caller="generate_critique_answer")
 
 def generate_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
 
@@ -99,7 +109,7 @@ def generate_answer(question: str, retrieved_chunks: list[dict], history: list[d
     {question}
     """
 
-    return _call_gemini(prompt)
+    return _call_gemini(prompt, caller="generate_answer")
 
 def generate_direct_answer(question: str, history: List[dict] = None) -> str:
     history_text = format_history(history)
@@ -114,5 +124,5 @@ def generate_direct_answer(question: str, history: List[dict] = None) -> str:
     {question}
     """
 
-    return _call_gemini(prompt)
+    return _call_gemini(prompt, caller="generate_direct_answer")
 

@@ -1,10 +1,13 @@
 from google import genai
 from app.config import settings
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
 
 def should_use_retrieval(question: str) -> dict:
+    logger.debug("Router input: %.120s", question)
     q = question.lower().strip()
 
     critique_triggers = [
@@ -30,6 +33,7 @@ def should_use_retrieval(question: str) -> dict:
 
     for phrase in critique_triggers:
         if phrase in q:
+            logger.info("Router matched critique rule: '%s'", phrase)
             return {
                 "decision": "critique",
                 "raw_label": f"matched critique rule: {phrase}"
@@ -59,11 +63,12 @@ def should_use_retrieval(question: str) -> dict:
 
     for phrase in retrieval_triggers:
         if phrase in q:
+            logger.info("Router matched retrieval rule: '%s'", phrase)
             return {
                 "decision": "retrieve",
                 "raw_label": f"matched retrieval rule: {phrase}"
             }
-
+    logger.info("Router: no trigger matched, using direct")
     return {
         "decision": "direct",
         "raw_label": "no retrieval trigger matched"

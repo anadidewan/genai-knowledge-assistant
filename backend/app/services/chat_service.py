@@ -8,6 +8,10 @@ from app.services.retrieval_service import hybrid_retrieve
 from app.services.llm_service import generate_answer, generate_direct_answer, generate_critique_answer
 from app.services.router_service import should_use_retrieval
 from app.config import settings
+import time
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
+
 
 def build_retrieval_query(history: list[dict], current_message: str) -> str:
 
@@ -31,12 +35,14 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
 
     # Build retrieval query
     retrieval_query = build_retrieval_query(history[:-1], user_message)
+    logger.debug("Retrieval query built | session=%s | query=%.120s", session_id, retrieval_query)
 
     
 
 
     try:
         routing = should_use_retrieval(retrieval_query)
+        logger.info("Routing decision | session=%s | decision=%s | label=%s", session_id, routing["decision"], routing["raw_label"])
 
 
         if routing["decision"] in ("retrieve", "critique"):
@@ -90,9 +96,11 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
             "routing_label": routing["raw_label"],
         }
     except ValueError as e:
+        logger.error("Chat processing ValueError | session=%s | error=%s", session_id, e)
         raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
+        logger.error("Chat processing failed | session=%s | error=%s", session_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
     # Save assistant reply

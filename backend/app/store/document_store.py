@@ -2,6 +2,8 @@ import os
 import json
 import faiss
 
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 
 class DocumentStore:
     def __init__(self):
@@ -19,20 +21,25 @@ class DocumentStore:
 
         if self.stored_index is not None:
             faiss.write_index(self.stored_index, self.index_path)
+            logger.info("FAISS index written to %s", self.index_path)
+
 
         with open(self.chunks_path, "w", encoding="utf-8") as f:
             json.dump(self.stored_chunks, f, ensure_ascii=False, indent=2)
+            logger.info("Chunks written to %s | count=%d", self.chunks_path, len(self.stored_chunks))
 
-        # with open(self.graph_path, "w", encoding="utf-8") as f:
-        #     json.dump(self.graph_data, f, ensure_ascii=False, indent=2)
+
 
     def load_from_disk(self):
         if os.path.exists(self.index_path):
             self.stored_index = faiss.read_index(self.index_path)
+            logger.info("FAISS index loaded from %s", self.index_path)
+
 
         if os.path.exists(self.chunks_path):
             with open(self.chunks_path, "r", encoding="utf-8") as f:
                 self.stored_chunks = json.load(f)
+            logger.info("Chunks loaded from %s | count=%d", self.chunks_path, len(self.stored_chunks))
 
         # if os.path.exists(self.graph_path):
         #     with open(self.graph_path, "r", encoding="utf-8") as f:

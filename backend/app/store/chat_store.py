@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
+from app.utils.custom_logger import get_logger
+logger = get_logger(__name__)
 
 # Path: backend/data/chat_history.json
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -42,12 +43,14 @@ def create_session() -> str:
     data = _load_data()
 
     session_id = str(uuid.uuid4())
+    logger.debug("Chat session created: %s", session_id)
     data["sessions"][session_id] = {
         "created_at": _utc_now_iso(),
         "messages": []
     }
 
     _save_data(data)
+
     return session_id
 
 
@@ -63,6 +66,7 @@ def save_message(session_id: str, role: str, content: str) -> None:
     data = _load_data()
 
     if session_id not in data["sessions"]:
+        logger.warning("Save message failed — session not found: %s", session_id)
         raise ValueError(f"Session '{session_id}' does not exist")
 
     message = {
@@ -72,6 +76,8 @@ def save_message(session_id: str, role: str, content: str) -> None:
     }
 
     data["sessions"][session_id]["messages"].append(message)
+    logger.debug("Message saved | session=%s | role=%s | length=%d", session_id, role, len(content))
+
     _save_data(data)
 
 
@@ -92,8 +98,11 @@ def get_recent_messages(session_id: str, limit: int = 6) -> list[dict[str, str]]
 def delete_session(session_id: str) -> None:
     data = _load_data()
 
+    
+
     if session_id not in data["sessions"]:
         raise ValueError(f"Session '{session_id}' does not exist")
 
     del data["sessions"][session_id]
+    logger.info("Session deleted: %s", session_id)
     _save_data(data)
