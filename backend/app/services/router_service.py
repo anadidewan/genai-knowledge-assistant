@@ -1,114 +1,58 @@
-from google import genai
-from app.config import settings
+
+import json
+from app.services.llm_service import _call_gemini
+
 from app.utils.custom_logger import get_logger
 logger = get_logger(__name__)
 
-client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+def rewrite_and_route(history: list[dict], current_message: str) -> dict:
+    if not history:
+        return {
+            "rewritten_query": current_message,
+            "mode": "direct",
+        }
 
+    recent = history[-4:]
+    history_text = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
 
-def should_use_retrieval(question: str) -> dict:
-    logger.debug("Router input: %.120s", question)
-    q = question.lower().strip()
+    prompt = f"""You are a routing assistant for a RAG system.
 
-    critique_triggers = [
-        "how can we improve",
-        "how to improve",
-        "make this better",
-        "make it better",
-        "improve this document",
-        "improve the document",
-        "how can we make this document better",
-        "how can i make this document better",
-        "is this good",
-        "is this well written",
-        "how can i rewrite",
-        "rewrite this better",
-        "make it clearer",
-        "make it stronger",
-        "make this clearer",
-        "what should i improve",
-        "how can i improve this",
-        "how can we improve this document",
-    ]
+Given the conversation history and the user's latest message, do two things:
 
-    for phrase in critique_triggers:
-        if phrase in q:
-            logger.info("Router matched critique rule: '%s'", phrase)
-            return {
-                "decision": "critique",
-                "raw_label": f"matched critique rule: {phrase}"
-            }
+1. Rewrite the latest message as a standalone question (resolve pronouns, add context from history). If it's already standalone, keep it unchanged.
 
-    retrieval_triggers = [
-        "uploaded document",
-        "uploaded documents",
-        "uploaded pdf",
-        "pdf",
-        "paper",
-        "report",
-        "file",
-        "document",
-        "documents",
-        "according to the document",
-        "according to the paper",
-        "from the document",
-        "from the paper",
-        "in the document",
-        "in the paper",
-        "summarize the document",
-        "summarize the paper",
-        "what does the document say",
-        "what does the paper say",
-    ]
+2. Classify the intent into one of these modes:
+   - RETRIEVE: user is asking about uploaded documents (summarize, extract, explain, compare content)
+   - CRITIQUE: user wants feedback on the document (improve, rewrite, make better, is this good)
+   - DIRECT: general knowledge question, not about any uploaded document
 
-    for phrase in retrieval_triggers:
-        if phrase in q:
-            logger.info("Router matched retrieval rule: '%s'", phrase)
-            return {
-                "decision": "retrieve",
-                "raw_label": f"matched retrieval rule: {phrase}"
-            }
-    logger.info("Router: no trigger matched, using direct")
-    return {
-        "decision": "direct",
-        "raw_label": "no retrieval trigger matched"
-    }
-    # else:
-    #     prompt = f"""
-    # You are a routing assistant for a RAG system.
+Return ONLY valid JSON in this exact format, nothing else:
+{{"query": "the rewritten standalone question", "mode": "retrieve"}}
 
-    # Your job is to decide whether a user question requires retrieving information from uploaded documents.
+Conversation:
+{history_text}
 
-    # Return ONLY one of these two labels:
-    # - RETRIEVE
-    # - DIRECT
+Latest message: {current_message}"""
 
-    # Use RETRIEVE if:
-    # - the user is asking about the uploaded document(s)
-    # - the answer likely depends on document-specific content
-    # - the user asks to summarize, extract, explain, compare, or locate information from uploaded files
+    raw = _call_gemini(prompt, caller="rewrite_and_route").strip()
 
-    # Use DIRECT if:
-    # - the question is general knowledge
-    # - the answer does not require any uploaded document context
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
 
-    # Question:
-    # {question}
-    # """
-
-    #     response = client.models.generate_content(
-    #         model=settings.GEMINI_MODEL,
-    #         contents=prompt
-    #     )
-
-    #     label = response.text.strip().upper()
-
-    #     if "RETRIEVE" in label:
-    #         decision = "RETRIEVE"
-    #     else:
-    #         decision = "DIRECT"
-
-    #     return {
-    #         "decision": decision,
-    #         "raw_label": label
-    #     }
+    try:
+        parsed = json.loads(raw.strip())
+        mode = parsed.get("mode", "direct").lower()
+        if mode not in ("retrieve", "critique", "direct"):
+            mode = "direct"
+        return {
+            "rewritten_query": parsed.get("query", current_message),
+            "mode": mode,
+        }
+    except Exception as e:
+        logger.warning("Rewrite+route parse failed: %s | raw=%s", e, raw)
+        return {
+            "rewritten_query": current_message,
+            "mode": "direct",
+        }
