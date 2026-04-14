@@ -1,5 +1,7 @@
 from google import genai
 from app.config import settings
+from app.utils.retry_utils import retry_with_backoff
+from typing import List
 
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
@@ -12,6 +14,16 @@ def format_history(history):
         role = msg["role"].capitalize()
         formatted.append(f"{role}: {msg['content']}")
     return "\n".join(formatted)
+
+ 
+ 
+@retry_with_backoff(max_retries=3, base_delay=1.0, backoff_factor=2.0)
+def _call_gemini(prompt: str) -> str:
+    """Centralized Gemini call with retry logic."""
+    response = client.models.generate_content(
+        model=settings.GEMINI_MODEL, contents=prompt
+    )
+    return response.text
 
 def generate_critique_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
     history_text = format_history(history)
@@ -49,11 +61,9 @@ def generate_critique_answer(question: str, retrieved_chunks: list[dict], histor
     User request:
     {question}
     """
-    response = client.models.generate_content(
-    model=settings.GEMINI_MODEL, contents=prompt
-    )
+    
+    return _call_gemini(prompt)
 
-    return response.text
 def generate_answer(question: str, retrieved_chunks: list[dict], history: list[dict] = None) -> str:
 
     history_text = format_history(history)
@@ -89,11 +99,7 @@ def generate_answer(question: str, retrieved_chunks: list[dict], history: list[d
     {question}
     """
 
-    response = client.models.generate_content(
-    model=settings.GEMINI_MODEL, contents=prompt
-    )
-
-    return response.text
+    return _call_gemini(prompt)
 
 def generate_direct_answer(question: str, history: List[dict] = None) -> str:
     history_text = format_history(history)
@@ -108,9 +114,5 @@ def generate_direct_answer(question: str, history: List[dict] = None) -> str:
     {question}
     """
 
-    response = client.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt
-    )
+    return _call_gemini(prompt)
 
-    return response.text

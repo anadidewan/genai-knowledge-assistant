@@ -7,8 +7,7 @@ from app.store.chat_store import (
 from app.services.retrieval_service import hybrid_retrieve
 from app.services.llm_service import generate_answer, generate_direct_answer, generate_critique_answer
 from app.services.router_service import should_use_retrieval
-
-
+from app.config import settings
 
 def build_retrieval_query(history: list[dict], current_message: str) -> str:
 
@@ -40,36 +39,44 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
         routing = should_use_retrieval(retrieval_query)
 
 
-        if routing["decision"] == "retrieve":
+        if routing["decision"] in ("retrieve", "critique"):
             retrieved_chunks = hybrid_retrieve(retrieval_query, top_k=5)
-            answer = generate_answer(user_message, retrieved_chunks, history)
-            sources = [
-                {
-                    "document_name": chunk["document_name"],
-                    "chunk_id": chunk["chunk_id"]
-                }
-                for chunk in retrieved_chunks
-            ]
-
-            mode = "retrieved"
-        elif routing["decision"] == "critique":
-
-            retrieved_chunks = hybrid_retrieve(retrieval_query, top_k=5)
-            answer = generate_critique_answer(user_message, retrieved_chunks, history)
-            sources = [
-                {
-                    "document_name": chunk["document_name"],
-                    "chunk_id": chunk["chunk_id"]
-                }
-                for chunk in retrieved_chunks
-            ]
-
-            mode = "retrieved"
+            confidence = (
+                retrieved_chunks[0].get("retrieval_confidence", 0.0)
+                if retrieved_chunks
+                else 0.0
+            )
+            if confidence < settings.RETRIEVAL_CONFIDENCE_THRESHOLD:
+                answer = generate_direct_answer(user_message, history)
+                mode = "direct_low_confidence"
+                sources = []
+                retrieved_chunks = []
+            elif routing["decision"] == "critique":
+                answer = generate_critique_answer(user_message, retrieved_chunks, history)
+                mode = "retrieved"
+                sources = [
+                    {
+                        "document_name": chunk["document_name"],
+                        "chunk_id": chunk["chunk_id"],
+                    }
+                    for chunk in retrieved_chunks
+                ]
+            else:
+                answer = generate_answer(user_message, retrieved_chunks, history)
+                mode = "retrieved"
+                sources = [
+                    {
+                        "document_name": chunk["document_name"],
+                        "chunk_id": chunk["chunk_id"],
+                    }
+                    for chunk in retrieved_chunks
+                ]
         else:
             retrieved_chunks = []
-            answer = generate_direct_answer(user_message,history)
+            answer = generate_direct_answer(user_message, history)
             sources = []
             mode = "direct"
+ 
 
         # Save assistant reply
         save_message(session_id, "assistant", answer)

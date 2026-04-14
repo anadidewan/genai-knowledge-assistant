@@ -1,7 +1,10 @@
 import re
 from typing import List, Dict, Any
-from app.utils.vector_utils import embed_query, search_index
+from app.utils.vector_utils import embed_query
 from app.store.document_store import store
+from app.config import settings
+
+CONFIDENCE_THRESHOLD = settings.RETRIEVAL_CONFIDENCE_THRESHOLD
 
 
 def tokenize(text: str) -> set:
@@ -81,6 +84,24 @@ def normalize_semantic_scores(results: List[Dict[str, Any]]) -> List[Dict[str, A
 
     return results
 
+def compute_retrieval_confidence(results: List[Dict[str, Any]]) -> float:
+    
+    if not results:
+        return 0.0
+ 
+    scores = [item["hybrid_score"] for item in results]
+    top_score = scores[0]
+ 
+    if len(scores) == 1:
+        return top_score
+ 
+    rest_avg = sum(scores[1:]) / len(scores[1:])
+    gap = top_score - rest_avg
+ 
+    confidence = 0.6 * top_score + 0.4 * gap
+    return round(min(max(confidence, 0.0), 1.0), 4)
+
+
 def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
     semantic_results = semantic_retrieve(question, top_k=top_k * 2)
     semantic_results = normalize_semantic_scores(semantic_results)
@@ -119,6 +140,9 @@ def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
     final_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
+    confidence = compute_retrieval_confidence(final_results[:top_k])
+
+
     print("\nTop hybrid results:")
     for item in final_results[:5]:
         print(
@@ -127,5 +151,8 @@ def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             "keyword=", item["keyword_score"],
             "hybrid=", item["hybrid_score"]
         )
+    top_results = final_results[:top_k]
+    for item in top_results:
+        item["retrieval_confidence"] = confidence
 
-    return final_results[:top_k]
+    return top_results
