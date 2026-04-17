@@ -4,6 +4,11 @@ from app.utils.retry_utils import retry_with_backoff
 from typing import List
 import time
 from app.utils.custom_logger import get_logger
+from app.observability.metrics import (
+    LLM_CALLS_TOTAL,
+    LLM_LATENCY_MS,
+    LLM_EMPTY_RESPONSES_TOTAL,
+)
 logger = get_logger(__name__)
 
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
@@ -22,6 +27,8 @@ def format_history(history):
  
 @retry_with_backoff(max_retries=settings.LLM_MAX_RETRIES, base_delay=settings.LLM_BASE_DELAY,max_delay=settings.LLM_MAX_DELAY ,backoff_factor=settings.LLM_BACKOFF_FACTOR)
 def _call_gemini(prompt: str, caller: str = "unknown") -> str:
+    LLM_CALLS_TOTAL.labels(caller=caller).inc()
+
     logger.info("LLM call start | caller=%s | prompt_len=%d", caller, len(prompt))
     start = time.time()
     response = client.models.generate_content(
@@ -29,8 +36,12 @@ def _call_gemini(prompt: str, caller: str = "unknown") -> str:
     )
     elapsed = round((time.time() - start) * 1000)
     text = response.text or ""
+    LLM_LATENCY_MS.labels(caller=caller).observe(elapsed)
+
     if not text.strip():
         logger.warning("LLM returned empty response | caller=%s | elapsed=%dms", caller, elapsed)
+        LLM_EMPTY_RESPONSES_TOTAL.labels(caller=caller).inc()
+
     else:
         logger.info("LLM call complete | caller=%s | response_len=%d | elapsed=%dms", caller, elapsed, len(text))
     return text

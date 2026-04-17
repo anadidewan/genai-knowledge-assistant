@@ -9,6 +9,12 @@ from app.store.chat_store import (
     session_exists,
     get_messages,
 )
+from app.observability.metrics import (
+    CHAT_REQUESTS_TOTAL,
+    CHAT_REQUEST_FAILURES_TOTAL,
+    CHAT_REQUEST_LATENCY_MS,
+)
+
 import time
 from app.utils.custom_logger import get_logger
 logger = get_logger(__name__)
@@ -28,23 +34,33 @@ def send_chat_message(payload: ChatMessageRequest):
     if not session_exists(payload.session_id):
         logger.warning("Session not found: %s", payload.session_id)
         raise HTTPException(status_code=404, detail="Session not found")
-
-    logger.info("Message received | session=%s | length=%d | preview=%.80s", payload.session_id, len(payload.message), payload.message)
-    start = time.time()
-    result = process_chat_message(payload.session_id, payload.message)
-    elapsed = round((time.time() - start) * 1000)
-    logger.info("Response sent | session=%s | mode=%s | routing=%s | answer_len=%d | elapsed=%dms", result["session_id"], result["mode"], result["routing_label"], len(result["answer"]), elapsed)
     
+    logger.info("Message received | session=%s | length=%d | preview=%.80s", payload.session_id, len(payload.message), payload.message)
+    CHAT_REQUESTS_TOTAL.inc()
+    start = time.time()
 
-    return {
-        "session_id": result["session_id"],
-        "mode": result["mode"],
-        "routing_label": result["routing_label"],
-        "answer": result["answer"],
-        "retrieved_chunks": result["retrieved_chunks"],
-        "sources": result["sources"],
-        "messages": get_messages(payload.session_id),
-    }
+    try:
+        result = process_chat_message(payload.session_id, payload.message)
+        elapsed = round((time.time() - start) * 1000)
+        CHAT_REQUEST_LATENCY_MS.observe(elapsed)
+
+        logger.info("Response sent | session=%s | mode=%s | routing=%s | answer_len=%d | elapsed=%dms", result["session_id"], result["mode"], result["routing_label"], len(result["answer"]), elapsed)
+        
+
+        return {
+            "session_id": result["session_id"],
+            "mode": result["mode"],
+            "routing_label": result["routing_label"],
+            "answer": result["answer"],
+            "retrieved_chunks": result["retrieved_chunks"],
+            "sources": result["sources"],
+            "messages": get_messages(payload.session_id),
+        }
+    except Exception:
+        elapsed = round((time.time() - start) * 1000)
+        CHAT_REQUEST_LATENCY_MS.observe(elapsed)
+        CHAT_REQUEST_FAILURES_TOTAL.inc()
+        raise
 
 @router.get("/history/{session_id}")
 def get_chat_history(session_id: str):

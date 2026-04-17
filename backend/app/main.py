@@ -3,6 +3,8 @@ from app.config import settings
 from app.routes.document_routes import router as document_router
 from app.store.document_store import store
 from app.routes.chat_routes import router as chat_router
+from fastapi import Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.utils.custom_logger import setup_logging, get_logger
 setup_logging()
@@ -23,6 +25,9 @@ def startup_event():
 def read_root():
     return {"message": "Backend is running"}
 
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 app.include_router(document_router)
 app.include_router(chat_router)

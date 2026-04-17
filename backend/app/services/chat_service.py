@@ -8,9 +8,15 @@ from app.services.retrieval_service import hybrid_retrieve, graph_expand, get_gr
 from app.services.llm_service import generate_answer, generate_direct_answer, generate_critique_answer, _call_gemini
 from app.services.router_service import rewrite_and_route
 from app.config import settings
+from app.observability.metrics import (
+    ROUTING_DECISIONS_TOTAL,
+    RETRIEVAL_CONFIDENCE,
+    RETRIEVED_CHUNKS_COUNT,
+    LOW_CONFIDENCE_FALLBACKS_TOTAL,
+)
 import time
 from app.utils.custom_logger import get_logger
-logger = get_logger(__name__)
+logger = get_logger(__name__) 
 
 
 # def build_retrieval_query(history: list[dict], current_message: str) -> str:
@@ -37,7 +43,7 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
     retrieval_query = routing_info["rewritten_query"]
     routing = routing_info["mode"]
     logger.debug("Retrieval query built | session=%s | query=%.120s", session_id, retrieval_query)
-
+    ROUTING_DECISIONS_TOTAL.labels(mode=routing).inc()
     
 
 
@@ -47,15 +53,20 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
 
 
         if routing in ("retrieve", "critique"):
-            retrieved_chunks = hybrid_retrieve(retrieval_query, top_k=5)
-            retrieved_chunks = graph_expand(retrieved_chunks, top_k=3)
+            retrieved_chunks = hybrid_retrieve(retrieval_query, top_k=10)
+            retrieved_chunks = graph_expand(retrieved_chunks, top_k=10)
+            
             graph_context = get_graph_context(retrieved_chunks)
             confidence = (
                 retrieved_chunks[0].get("retrieval_confidence", 0.0)
                 if retrieved_chunks
                 else 0.0
             )
+            logger.info("Initial Confidence | session=%s | confidence=%.2f", session_id, confidence)
+            RETRIEVED_CHUNKS_COUNT.observe(len(retrieved_chunks))
+            RETRIEVAL_CONFIDENCE.observe(confidence)
             if confidence < settings.RETRIEVAL_CONFIDENCE_THRESHOLD:
+                LOW_CONFIDENCE_FALLBACKS_TOTAL.inc()
                 answer = generate_direct_answer(user_message, history)
                 mode = "direct_low_confidence"
                 sources = []
@@ -82,12 +93,13 @@ def process_chat_message(session_id: str, user_message: str) -> dict:
                     }
                     for chunk in retrieved_chunks
                 ]
+            logger.info("Final Confidence and routing | session=%s | decision=%s | confidence=%.2f", session_id, routing, confidence)    
         else:
             retrieved_chunks = []
             answer = generate_direct_answer(user_message, history)
             sources = []
             mode = "direct"
- 
+        
 
         # Save assistant reply
         save_message(session_id, "assistant", answer)

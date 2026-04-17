@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 from app.utils.vector_utils import embed_query
 from app.store.document_store import store
 from app.config import settings
+from app.observability.metrics import RETRIEVAL_LATENCY_MS
 
 import time
 from app.utils.custom_logger import get_logger
@@ -208,7 +209,9 @@ def get_graph_context(retrieved_chunks: List[Dict[str, Any]], max_triplets: int 
     logger.debug("Graph context: %d triplets for prompt", len(triplets[:max_triplets]))
     return "\n".join(triplets[:max_triplets])
 
-def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
+def hybrid_retrieve(question: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    start = time.time()
+
     semantic_results = semantic_retrieve(question, top_k=top_k * 2)
     semantic_results = normalize_semantic_scores(semantic_results)
 
@@ -260,5 +263,6 @@ def hybrid_retrieve(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
     top_results = final_results[:top_k]
     for item in top_results:
         item["retrieval_confidence"] = confidence
-
+    elapsed = round((time.time() - start) * 1000)
+    RETRIEVAL_LATENCY_MS.observe(elapsed)
     return top_results
